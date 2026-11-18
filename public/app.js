@@ -9,7 +9,7 @@ const persist = (key,value) => localStorage.setItem('kodeks:'+key,JSON.stringify
 const stored = (key,fallback) => {
   try {return JSON.parse(localStorage.getItem('kodeks:'+key)) ?? fallback} catch {return fallback}
 }
-const state = {catalog:null,user:null,city:stored('city','Казань'),cart:stored('cart',[]),favorites:stored('favorites',[]),promo:'',quote:null,quoteError:'',renderID:0,checkoutDraft:null}
+const state = {catalog:null,user:null,authOptions:{},cart:stored('cart',[]),favorites:stored('favorites',[]),promo:'',quote:null,quoteError:'',renderID:0,checkoutDraft:null}
 let saveQueue = Promise.resolve()
 let toastTimer
 let trackTimer
@@ -48,8 +48,8 @@ const submit = label => `<button class="button primary" type="submit">${label}</
 const matches = (query,...values) => values.some(value=>value.toLocaleLowerCase('ru').includes(query.trim().toLocaleLowerCase('ru')))
 const dishBy = id => state.catalog.dishes.find(dish=>dish.id===id)
 const restBy = id => state.catalog.restaurants.find(rest=>rest.id===id)
-const cityRestaurants = () => state.catalog.restaurants.filter(rest=>rest.city===state.city)
-const cityDishes = () => state.catalog.dishes.filter(dish=>restBy(dish.restaurant_id)?.city===state.city)
+const cityRestaurants = () => state.catalog.restaurants
+const cityDishes = () => state.catalog.dishes
 const featuredDishes = () => cityRestaurants().map(rest=>cityDishes().find(dish=>dish.restaurant_id===rest.id)).filter(Boolean).slice(0,3)
 const brand = () => {
   const {name,logo} = state.catalog.settings
@@ -61,7 +61,6 @@ function shell(route) {
     (state.catalog.promos[0]?`<a href="#offers" class="side-promo"><strong>✦ Промокоды</strong><small>Скидки на заказ</small></a>`:'')
   const count=state.cart.reduce((sum,item)=>sum+item.qty,0)
   $('#header').innerHTML=`<a class="mobile-brand" href="#home">♔ ${esc(state.catalog.settings.name)}</a>
-    <select id="city" aria-label="Город доставки">${opts(state.catalog.settings.cities,state.city)}</select>
     <form class="search" data-form="search"><input type="search" name="q" aria-label="Поиск блюд и ресторанов" placeholder="Поиск блюд и ресторанов…" value="${esc(route.path==='catalog'?route.params.get('q'):'')}"><button class="button compact" aria-label="Найти">⌕</button></form>
     ${state.user?link('◉ '+esc(state.user.name.split(' ')[0]),'profile','button compact'):btn('◉ Войти','auth','compact')}
     ${link('Корзина'+(count?' · '+count:''),'cart','button primary compact')}`
@@ -73,9 +72,10 @@ const restaurantCard = rest => `<article class="card"><a class="card-media" href
 const dishCard = dish => `<article class="card"><div class="card-media">${img(dish.image,dish.name,'loading="lazy"')}</div><div class="card-body"><h3>${esc(dish.name)}</h3><p>${esc(dish.description)}</p><div class="meta">${esc(dish.weight)}</div><div class="spread"><strong>${dish.discount?`<del class="muted">${rub(dish.price)}</del> `:''}${rub(dish.price-dish.discount)}</strong>${btn('＋','dish','primary compact',`data-id="${dish.id}" aria-label="Добавить ${esc(dish.name)}"`)}</div></div></article>`
 const grid = (values,card) => '<div class="grid">'+values.map(card).join('')+'</div>'
 const categoryLinks = selected => `<div class="categories">${state.catalog.categories.map((category,index)=>`<a href="${esc(href('catalog',selected===category?{}:{category}))}" class="category ${selected===category?'active':''}">${img('/food-'+index+'.jpg')}${category}</a>`).join('')}</div>`
-const promoCards = () => state.catalog.promos.length?grid(state.catalog.promos,promo=>`<article class="panel promo-card"><span class="pill">Промокод</span><h3>Скидка ${promo.kind==='percent'?promo.value+'%':rub(promo.value)}</h3><p>Действует до ${promo.expires.split('-').reverse().join('.')}</p>${btn(esc(promo.code),'promo','',`data-code="${esc(promo.code)}"`)}</article>`):empty('Акций пока нет','Загляните позже.')
+const giftOffer = () => `<article class="panel promo-card gift-offer">${img('/food-2.jpg')}<div><h3>Роллы в подарок</h3><p>Добавим автоматически при заказе блюд от 1 000 ₽.</p></div></article>`
+const promoCards = () => giftOffer()+(state.catalog.promos.length?grid(state.catalog.promos,promo=>`<article class="panel promo-card"><span class="pill">Промокод</span><h3>Скидка ${promo.kind==='percent'?promo.value+'%':rub(promo.value)}</h3><p>Действует до ${promo.expires.split('-').reverse().join('.')}</p>${btn(esc(promo.code),'promo','',`data-code="${esc(promo.code)}"`)}</article>`):'')
 function home() {
-  return `<section class="hero"><div class="hero-copy"><span class="pill">✦ Доставка в городе ${esc(state.city)}</span><h1>Любимая еда.<br><em>Уже в пути.</em></h1><p>Бургеры, пицца, суши и другие блюда из ресторанов рядом.</p>${link('Выбрать ресторан →','catalog','button primary')}</div></section>`
+  return `<section class="hero"><div class="hero-copy"><span class="pill">Доставка по городу ${esc(state.catalog.settings.city)}</span><h1>Любимая еда.<br><em>Уже в пути.</em></h1><p>Бургеры, пицца, суши и другие блюда из ресторанов рядом.</p>${link('Выбрать ресторан →','catalog','button primary')}</div></section>`
     +section('Что закажем?',categoryLinks())
     +section('Популярные рестораны',grid(cityRestaurants().sort((a,b)=>(b.rating-b.minutes/100)-(a.rating-a.minutes/100)).slice(0,3),restaurantCard),link('Все рестораны →','catalog','text-link'))
     +section('Популярные блюда',grid(featuredDishes(),dishCard))
@@ -99,7 +99,7 @@ function catalog(params) {
 }
 function restaurant(params) {
   const rest=restBy(Number(params.get('id')))
-  if (!rest||rest.city!==state.city) return empty('Ресторан недоступен','Выберите ресторан в своём городе.',link('В каталог','catalog'))
+  if (!rest) return empty('Ресторан недоступен','Выберите другой ресторан.',link('В каталог','catalog'))
   const dishes=state.catalog.dishes.filter(dish=>dish.restaurant_id===rest.id)
   const categories=[...new Set(dishes.map(dish=>dish.category))]
   const q=params.get('q')||''
@@ -127,16 +127,8 @@ function setFavorites(favorites) {
   if (!state.user) persist('favorites',favorites)
   sync({favorites})
 }
-function resetCity(city) {
-  state.city=city
-  persist('city',city)
-  setCart([])
-  state.promo=''
-  state.checkoutDraft=null
-  if (['restaurant','checkout'].includes(readRoute().path)) navigate('catalog')
-  else render()
-}
 const itemEquals = (a,b) => a.id===b.id&&a.addons.join('|')===b.addons.join('|')
+const giftLine = gift => gift?`<article class="panel line-item gift-line">${img(gift.image,gift.name)}<div><span class="pill">Подарок</span><h3>${esc(gift.name)}</h3></div><strong>0 ₽</strong></article>`:''
 const summarized = q => q?`<div class="spread"><span>Блюда</span><strong>${rub(q.subtotal)}</strong></div><div class="spread"><span>Доставка</span><strong>${rub(q.delivery)}</strong></div>${q.discount?`<div class="spread"><span>Скидка</span><strong>−${rub(q.discount)}</strong></div>`:''}<div class="spread"><h3>Итого</h3><h3>${rub(q.total)}</h3></div>${q.warnings.map(warning=>`<p class="error">${esc(warning)}</p>`).join('')}`:`<p class="error">${esc(state.quoteError)}</p>`
 const promoForm = () => `<form class="stack" data-form="promo"><label>Промокод<input name="promo" maxlength="40" placeholder="Введите код" value="${esc(state.promo)}"></label>${submit('Применить')}</form>${state.promo?btn('Убрать промокод','removePromo'):''}`
 function cartPage() {
@@ -145,7 +137,7 @@ function cartPage() {
     const dish=dishBy(item.id)
     return `<article class="panel line-item">${img(dish?.image||'/mascot.jpg')}<div><h3>${esc(dish?.name||'Блюдо недоступно')}</h3><p>${item.addons.map(esc).join(', ')}</p>${dish?.addons.length?btn('Добавки','editDish','compact',`data-index="${index}"`):''}</div><div class="row">${btn('−','qty','compact',`data-index="${index}" data-step="-1" aria-label="Уменьшить количество"`)}<strong>${item.qty}</strong>${btn('+','qty','compact',`data-index="${index}" data-step="1" aria-label="Увеличить количество"`)}${btn('×','remove','compact danger',`data-index="${index}" aria-label="Удалить"`)}</div></article>`
   }).join('')
-  return title('Корзина')+`<div class="split"><div class="stack">${contents}</div><aside class="panel stack summary">${summarized(state.quote)}${promoForm()}${state.quote&&!state.quote.warnings.length?link('Оформить заказ','checkout','button primary full'):''}</aside></div>`
+  return title('Корзина')+`<div class="split"><div class="stack">${contents}${giftLine(state.quote?.items.find(item=>item.gift))}${state.quote&&state.quote.subtotal<1000?`<p class="muted">До роллов в подарок ещё ${rub(1000-state.quote.subtotal)}.</p>`:""}</div><aside class="panel stack summary">${summarized(state.quote)}${promoForm()}${state.quote&&!state.quote.warnings.length?link('Оформить заказ','checkout','button primary full'):''}</aside></div>`
 }
 const addressFields = [['street','Улица'],['house','Дом'],['flat','Квартира'],['entry','Подъезд'],['floor','Этаж'],['intercom','Домофон']]
 const addressInputs = (values={}) => addressFields.map(([key,label],index)=>input(key,label,values[key],'text',index<2?'required maxlength="120"':'maxlength="120"')).join('')
@@ -154,24 +146,24 @@ function checkout() {
   if (!state.cart.length) return title('Оформление')+empty('Корзина пуста','Добавьте блюда перед оформлением.',link('В каталог','catalog'))
   if (!state.user) return title('Оформление')+empty('Войдите для оформления','В личном кабинете будет доступно отслеживание заказа.',btn('Войти или зарегистрироваться','auth','primary'))
   const draft=state.checkoutDraft||{}
-  const addresses=state.user.addresses.map((a,i)=>[i,addressLabel(a)]).filter(([index])=>state.user.addresses[index].city===state.city)
+  const addresses=state.user.addresses.map((a,i)=>[i,addressLabel(a)]).filter(([index])=>!state.user.addresses[index].city||state.user.addresses[index].city===state.catalog.settings.city)
   return title('Оформление заказа')+`<div class="split"><form class="panel form-grid" data-form="checkout">
     ${input('name','Имя',draft.name??state.user.name,'text','required maxlength="120"')}${input('phone','Телефон',draft.phone??state.user.phone,'tel','required minlength="10" maxlength="22"')}
-    ${input('city','Город',state.city,'text','readonly')}${addresses.length?field('saved','Сохранённый адрес',[['','Новый адрес'],...addresses],draft.saved):''}
+    ${addresses.length?field('saved','Сохранённый адрес',[['','Новый адрес'],...addresses],draft.saved):''}
     ${addressInputs(draft)}<label class="span">Комментарий курьеру<textarea name="comment" maxlength="500">${esc(draft.comment)}</textarea></label>
     ${field('schedule','Время доставки',[['asap','Как можно скорее'],['later','Ко времени']],draft.schedule||'asap')}
     <label id="delivery-time" ${draft.schedule!=='later'?'hidden':''}>Дата и время<input type="datetime-local" name="time" value="${esc(draft.time)}"></label>
     ${field('payment','Способ оплаты',[['demo','Демо-оплата'],['cash','Наличными курьеру']],draft.payment||'demo')}
     <label class="check"><input name="saveAddress" type="checkbox" ${draft.saveAddress?'checked':''}> Сохранить адрес</label>
     <p class="muted span">В режиме демо деньги не списываются.</p><div class="span">${state.quote&&!state.quote.warnings.length?submit('Подтвердить заказ'):link('Вернуться в корзину','cart')}</div>
-    </form><aside class="panel stack summary"><h2>Ваш заказ</h2>${(state.quote?.items||[]).map(item=>`<div class="spread"><span>${esc(item.name)} × ${item.qty}</span><strong>${rub(item.total)}</strong></div>`).join('')}${summarized(state.quote)}${promoForm()}</aside></div>`
+    </form><aside class="panel stack summary"><h2>Ваш заказ</h2>${(state.quote?.items||[]).map(item=>`<div class="spread"><span>${esc(item.name)} × ${item.qty} ${item.gift?'<span class="pill">Подарок</span>':''}</span><strong>${rub(item.total)}</strong></div>`).join('')}${summarized(state.quote)}${promoForm()}</aside></div>`
 }
 const orderList = orders => orders.length?`<div class="panel stack">${orders.map(order=>`<a class="spread list-row" href="#order?id=${order.id}"><span><strong>Заказ №${order.id}</strong><br><small>${date(order.created)}</small></span><span class="pill">${statuses[order.status]}</span><strong>${rub(order.total)} →</strong></a>`).join('')}</div>`:empty('Заказов пока нет','Ваши заказы появятся здесь после оформления.',link('К ресторанам','catalog'))
 const needsAuth = () => empty('Войдите в аккаунт','Здесь хранятся ваши заказы и настройки.',btn('Войти','auth','primary'))
 function tracking(order) {
   return title('Заказ №'+order.id,'Оформлен '+date(order.created))+`<div class="split">
     <div class="panel stack"><h2>${statuses[order.status]}</h2><p>Ориентир по доставке · ${date(order.eta)}</p><ol class="timeline">${statuses.map((status,i)=>`<li class="${i<=order.status?'done':''} ${i===order.status?'current':''}" ${i===order.status?'aria-current="step"':''}>${status}</li>`).join('')}</ol></div>
-    <aside class="panel stack"><h2>Состав заказа</h2>${order.items.map(item=>`<div class="spread"><span>${esc(item.name)} × ${item.qty}<br><small>${item.addons.map(addon=>esc(addon.name)).join(', ')}</small></span><strong>${rub(item.total)}</strong></div>`).join('')}<p>${esc(addressLabel(order.details.address))}</p><p>${order.details.payment==='demo'?'Демонстрационная оплата':'Наличными при получении'}</p><div class="spread"><strong>Итого с доставкой</strong><strong>${rub(order.total)}</strong></div></aside></div>`
+    <aside class="panel stack"><h2>Состав заказа</h2>${order.items.map(item=>`<div class="spread"><span>${esc(item.name)} × ${item.qty} ${item.gift?'<span class="pill">Подарок</span>':''}<br><small>${item.addons.map(addon=>esc(addon.name)).join(', ')}</small></span><strong>${rub(item.total)}</strong></div>`).join('')}<p>${esc(addressLabel(order.details.address))}</p><p>${order.details.payment==='demo'?'Демонстрационная оплата':'Наличными при получении'}</p><div class="spread"><strong>Итого с доставкой</strong><strong>${rub(order.total)}</strong></div></aside></div>`
 }
 function profile(params) {
   if (!state.user) return title('Личный кабинет')+needsAuth()
@@ -179,14 +171,41 @@ function profile(params) {
   const {user}=state
   const tabs=[['profile','Профиль'],['addresses','Адреса'],['settings','Настройки']]
   let body=`<form class="panel form-grid" data-form="profile">${input('name','Имя',user.name,'text','required maxlength="120"')}${input('email','Электронная почта',user.email,'email','readonly')}${input('phone','Телефон',user.phone,'tel','maxlength="22"')}<div class="span">${submit('Сохранить')}</div></form>`
-  if (tab==='addresses') body=`<div class="stack">${user.addresses.map((a,index)=>`<div class="panel spread">${esc(addressLabel(a))}${btn('Удалить','removeAddress','danger',`data-index="${index}"`)}</div>`).join('')}<form class="panel form-grid" data-form="address"><h2 class="span">Добавить адрес</h2>${field('city','Город',state.catalog.settings.cities,state.city)}${addressInputs()}<div class="span">${submit('Добавить адрес')}</div></form></div>`
-  if (tab==='settings') body=`<div class="panel stack"><h2>Предпочтения</h2><label>Город по умолчанию<select id="default-city">${opts(state.catalog.settings.cities,state.city)}</select></label>${btn('Выйти из аккаунта','logout','danger')}</div>`
+  if (tab==='addresses') body=`<div class="stack">${user.addresses.map((a,index)=>`<div class="panel spread">${esc(addressLabel(a))}${btn('Удалить','removeAddress','danger',`data-index="${index}"`)}</div>`).join('')}<form class="panel form-grid" data-form="address"><h2 class="span">Добавить адрес</h2>${addressInputs()}<div class="span">${submit('Добавить адрес')}</div></form></div>`
+  if (tab==='settings') body=`<div class="panel stack"><h2>Аккаунт</h2>${btn('Выйти из аккаунта','logout','danger')}</div>`
   return title('Личный кабинет','Привет, '+esc(user.name))+`<div class="row filters">${tabs.map(([key,label])=>link(label,'profile','button '+(key===tab?'primary':''),{tab:key})).join('')}${link('Мои заказы','orders')}${link('Избранное','favorites')}${user.role==='admin'?link('Админ-панель','admin'):''}</div>`+body
 }
+function adminOrders(orders,params) {
+  const filter=params.get('status')||'active'
+  const query=params.get('q')||''
+  const filtered=orders.filter(order=>(filter==='all'||(filter==='active'?order.status<5:order.status===Number(filter)))&&
+    matches(query,String(order.id),order.details.name,order.details.phone,order.details.address.street))
+  const labels=[['active','В работе'],['0','Новые'],['1','Принятые'],['2','Готовятся'],['3','Переданы'],['4','В пути'],['5','Доставлены'],['all','Все заказы']]
+  const advance=['Принять заказ','Начать готовить','Передать курьеру','Отправить курьера','Отметить доставленным']
+  return `<div class="ops-layout"><div class="panel ops-toolbar">
+    <form class="row" data-form="adminOrders"><input type="search" name="q" value="${esc(query)}" placeholder="Номер, имя, телефон или улица" aria-label="Поиск заказов"><input type="hidden" name="status" value="${esc(filter)}">${submit('Найти')}${btn('↻ Обновить','refreshOrders')}</form>
+    <div class="row">${labels.map(([key,label])=>link(label,'admin','button compact '+(key===filter?'primary':''),{tab:'orders',status:key,q:query})).join('')}</div>
+  </div><div class="stack">${filtered.map(order=>{
+    const {details}=order
+    const addressDetails=[details.address.entry&&'подъезд '+details.address.entry,details.address.floor&&'этаж '+details.address.floor,details.address.intercom&&'домофон '+details.address.intercom].filter(Boolean).join(' · ')
+    return `<article class="panel ops-order ${order.status===0?'ops-new':''}">
+      <div class="spread"><div><small>${date(order.created)} · ${details.payment==='demo'?'Демо-оплата':'Наличными'}</small><h3>Заказ №${order.id}</h3></div><span class="pill">${statuses[order.status]}</span></div>
+      <div class="spread"><div><strong>${esc(details.name)}</strong><p>${esc(details.phone)} · ${esc(addressLabel(details.address))}</p></div><strong class="ops-total">${rub(order.total)}</strong></div>
+      <details><summary>Состав и управление</summary><div class="stack">
+        <p>Доставка к ${date(order.eta)} ${addressDetails?' · '+esc(addressDetails):''}</p>
+        ${details.comment?`<p>Комментарий — ${esc(details.comment)}</p>`:''}
+        ${order.items.map(item=>`<div class="spread list-row"><span>${esc(item.name)} × ${item.qty} ${item.gift?'<span class="pill">Подарок</span>':''}<br><small>${esc(item.restaurant)} ${esc(item.addons.map(addon=>addon.name).join(', '))}</small></span><strong>${rub(item.total)}</strong></div>`).join('')}
+        <form class="row" data-form="adminStatus" data-id="${order.id}" data-expected="${order.status}">${field('status','Изменить статус',statuses.map((status,i)=>[i,status]),order.status)}${submit('Сохранить')}</form>
+      </div></details>
+      ${order.status<5?`<div>${btn(advance[order.status],'advanceOrder','primary',`data-id="${order.id}" data-expected="${order.status}"`)}</div>`:''}
+    </article>`
+  }).join('')||empty('Заказы не найдены','Как только заказ поступит в эту очередь, он появится здесь.')}</div></div>`
+}
+
 const adminTabs = [['dashboard','Статистика'],['restaurants','Рестораны'],['dishes','Блюда'],['orders','Заказы'],['users','Пользователи'],['promos','Промокоды'],['settings','Настройки']]
 function adminPage(data,params) {
   const tab=params.get('tab')||'dashboard'
-  const controls=`<div class="row filters">${adminTabs.map(([key,label])=>link(label,'admin','button '+(key===tab?'primary':''),{tab:key})).join('')}</div>`
+  const controls=`<nav class="row filters ops-nav" aria-label="Разделы админ-панели">${adminTabs.map(([key,label])=>link(label,'admin','button '+(key===tab?'primary':''),{tab:key})).join('')}</nav>`
   let content
   if (tab==='dashboard') {
     const revenue=data.orders.filter(order=>order.status===5&&order.details.payment==='cash').reduce((sum,order)=>sum+order.total,0)
@@ -200,19 +219,19 @@ function adminPage(data,params) {
       section('Популярные блюда',`<div class="panel">${popular.length?bars(popular,popular[0][1]):'<p>Появятся после первого заказа.</p>'}</div>`)+
       section('Последние заказы',`<div class="panel">${data.orders.slice(0,6).map(order=>`<div class="spread list-row"><span>№${order.id} · ${date(order.created)}</span><span>${statuses[order.status]}</span><strong>${rub(order.total)}</strong></div>`).join('')||'<p>Заказов пока нет.</p>'}</div>`)
   }
-  if (tab==='orders') content=`<div class="stack">${data.orders.map(order=>`<details class="panel"><summary>Заказ №${order.id} · ${esc(order.details.name)} · ${rub(order.total)} · ${statuses[order.status]}</summary><div class="stack"><p>${esc(order.details.phone)} · ${esc(addressLabel(order.details.address))}</p><p>${esc([order.details.address.entry&&'подъезд '+order.details.address.entry,order.details.address.floor&&'этаж '+order.details.address.floor,order.details.address.intercom&&'домофон '+order.details.address.intercom,order.details.comment].filter(Boolean).join(' · '))}</p><p>${date(order.created)} → ${date(order.eta)} · ${order.details.payment==='demo'?'Демо':'Наличные'}</p>${order.items.map(item=>`<div class="spread"><span>${esc(item.restaurant)} · ${esc(item.name)} × ${item.qty} ${item.addons.length?'('+item.addons.map(addon=>esc(addon.name)).join(', ')+')':''}</span><strong>${rub(item.total)}</strong></div>`).join('')}<form class="row" data-form="adminStatus" data-id="${order.id}">${field('status','Статус',statuses.map((status,i)=>[i,status]),order.status)}${submit('Сохранить')}</form></div></details>`).join('')||'<p>Заказов пока нет.</p>'}</div>`
+  if (tab==='orders') content=adminOrders(data.orders,params)
   if (tab==='users') content=`<div class="stack">${data.users.map(user=>`<details class="panel"><summary>${esc(user.name)} · ${esc(user.email)} · ${user.role==='admin'?'Администратор':'Покупатель'}</summary><p>${esc(user.phone)}</p>${data.orders.filter(order=>order.user_id===user.id).map(order=>`<p>Заказ №${order.id} · ${date(order.created)} · ${rub(order.total)} · ${statuses[order.status]}</p>`).join('')||'<p>Заказов пока нет.</p>'}${user.id!==state.user.id?`<form data-form="adminRole" data-id="${user.id}" class="row">${field('role','Роль',[['customer','Покупатель'],['admin','Администратор']],user.role)}${submit('Сохранить')}</form>`:''}</details>`).join('')}</div>`
   if (tab==='settings') {
     const {settings}=data
-    content=`<form data-form="adminSettings" class="panel form-grid">${input('name','Название',settings.name,'text','required')}${input('contacts','Контакты',settings.contacts,'text','required')}${input('logo','Логотип',settings.logo,'text','required')}${input('upload','Загрузить логотип','','file','accept="image/png,image/jpeg,image/webp"')}${input('cities','Города через запятую',settings.cities.join(', '),'text','required')}${input('delivery','Доплата за доставку',settings.delivery,'number','required min="0"')}${input('minimum','Минимальная сумма',settings.minimum,'number','required min="0"')}<div class="span">${submit('Сохранить')}</div></form>`
+    content=`<form data-form="adminSettings" class="panel form-grid">${input('name','Название',settings.name,'text','required')}${input('contacts','Контакты',settings.contacts,'text','required')}${input('logo','Логотип',settings.logo,'text','required')}${input('upload','Загрузить логотип','','file','accept="image/png,image/jpeg,image/webp"')}${input('city','Город доставки',settings.city,'text','required')}${input('delivery','Доплата за доставку',settings.delivery,'number','required min="0"')}${input('minimum','Минимальная сумма',settings.minimum,'number','required min="0"')}<div class="span">${submit('Сохранить')}</div></form>`
   }
   if (['restaurants','dishes','promos'].includes(tab)) {
     content=`<div class="panel stack"><div>${btn('Добавить','adminEdit','primary',`data-table="${tab}" data-key="new"`)}</div>${data[tab].map(value=>{
       const key=esc(value.id??value.code)
-      return `<div class="spread list-row"><span><strong>${esc(value.name||value.code)}</strong><br><small>${esc(value.city||value.category||(value.kind==='percent'?value.value+'%':rub(value.value)))}</small></span><div class="row">${btn('Редактировать','adminEdit','compact',`data-table="${tab}" data-key="${key}"`)}${btn('Удалить','adminDelete','compact danger',`data-table="${tab}" data-key="${key}"`)}</div></div>`
+      return `<div class="spread list-row ops-editor-row"><span class="row">${value.image?img(value.image,value.name):""}<span><strong>${esc(value.name||value.code)}</strong><br><small>${esc(value.category||(value.kind==='percent'?value.value+'%':rub(value.value)))}</small></span></span><div class="row">${btn('Редактировать','adminEdit','compact',`data-table="${tab}" data-key="${key}"`)}${btn('Удалить','adminDelete','compact danger',`data-table="${tab}" data-key="${key}"`)}</div></div>`
     }).join('')}</div>`
   }
-  return title('Админ-панель')+controls+(content||empty('Раздел не найден','Выберите раздел в меню.'))
+  return `<div class="ops"><div class="ops-heading"><div><h1>Админ-панель</h1><p>Заказы, меню и настройки доставки</p></div>${link('Новые заказы · '+data.orders.filter(order=>order.status===0).length,'admin','button primary',{tab:'orders',status:'0'})}</div>${controls}${content||empty('Раздел не найден','Выберите раздел в меню.')}</div>`
 }
 let adminData
 function adminEdit(table,key) {
@@ -222,8 +241,8 @@ function adminEdit(table,key) {
   const image=(index)=>input('image','Изображение',record.image||'/food-'+index+'.jpg','text','required')+input('upload','Загрузить файл','','file','accept="image/png,image/jpeg,image/webp"')
   const common=()=>text('name','Название')+field('category','Категория',state.catalog.categories,record.category)+`<label class="span">Описание<textarea name="description" maxlength="1000">${esc(record.description)}</textarea></label>`
   let fields
-  if (table==='restaurants') fields=common()+field('city','Город',state.catalog.settings.cities,record.city)+number('rating','Рейтинг',record.rating??4.5,.1)+number('minutes','Время, мин',record.minutes??30)+number('delivery','Доставка, ₽')+number('minimum','Минимум заказа, ₽')+image(0)
-  if (table==='dishes') fields=common()+field('restaurant_id','Ресторан',adminData.restaurants.map(rest=>[rest.id,rest.name+' · '+rest.city]),record.restaurant_id)+number('price','Цена, ₽')+number('discount','Скидка, ₽')+text('weight','Вес или объём')+field('available','Доступность',[[1,'В меню'],[0,'Скрыто']],record.available??1)+image(0)+`<label class="span">Добавки в формате «Название | Цена», одна на строку<textarea name="addons">${esc((record.addons||[]).map(addon=>addon.name+' | '+addon.price).join('\n'))}</textarea></label>`
+  if (table==='restaurants') fields=common()+number('rating','Рейтинг',record.rating??4.5,.1)+number('minutes','Время, мин',record.minutes??30)+number('delivery','Доставка, ₽')+number('minimum','Минимум заказа, ₽')+image(0)
+  if (table==='dishes') fields=common()+field('restaurant_id','Ресторан',adminData.restaurants.map(rest=>[rest.id,rest.name]),record.restaurant_id)+number('price','Цена, ₽')+number('discount','Скидка, ₽')+text('weight','Вес или объём')+field('available','Доступность',[[1,'В меню'],[0,'Скрыто']],record.available??1)+image(0)+`<label class="span">Добавки в формате «Название | Цена», одна на строку<textarea name="addons">${esc((record.addons||[]).map(addon=>addon.name+' | '+addon.price).join('\n'))}</textarea></label>`
   if (table==='promos') fields=text('code','Код')+field('kind','Тип скидки',[['percent','Процент'],['fixed','Рубли']],record.kind)+number('value','Размер скидки')+input('expires','Действует до',record.expires,'date','required')+number('max_uses','Лимит применений (0 — без лимита)')
   openModal(key==='new'?'Добавить запись':'Редактировать запись',`<form class="form-grid" data-form="adminEntity" data-table="${table}" data-key="${esc(key)}">${fields}<div class="span">${submit('Сохранить')}</div></form>`)
 }
@@ -237,7 +256,9 @@ function authModal(register=false) {
     ${register?input('name','Имя','','text','required maxlength="120" autocomplete="name"'):''}
     ${input('email','Электронная почта','','email','required autocomplete="email"')}
     ${input('password','Пароль','','password',`required maxlength="128" ${register?'minlength="10" autocomplete="new-password"':'autocomplete="current-password"'}`)}
-    ${submit(register?'Создать аккаунт':'Войти')}${btn(register?'Уже есть аккаунт':'Создать аккаунт',register?'auth':'register')}</form>`)
+    ${submit(register?'Создать аккаунт':'Войти')}${btn(register?'Уже есть аккаунт':'Создать аккаунт',register?'auth':'register')}</form>
+    ${state.authOptions.google?'<a class="button light full" href="/api/auth/google" target="_top">Продолжить с Google</a>':''}
+`)
 }
 function dishModal(id,index) {
   const dish=dishBy(id)
@@ -249,7 +270,7 @@ function dishModal(id,index) {
 }
 async function loadQuote() {
   if (!state.cart.length) return {quote:null,error:''}
-  try {return {quote:await api('/quote','POST',{cart:state.cart,city:state.city,promo:state.promo}),error:''}}
+  try {return {quote:await api('/quote','POST',{cart:state.cart,promo:state.promo}),error:''}}
   catch (error) {return {quote:null,error:error.message}}
 }
 async function render() {
@@ -279,6 +300,11 @@ async function render() {
         html=path==='cart'?cartPage():checkout()
         break
       }
+      case 'admin-setup':
+        html=state.authOptions.adminSetup&&/^[a-f0-9]{64}$/.test(params.get('token')||'')
+          ? title('Настройка администратора')+`<form class="panel stack" data-form="adminSetup">${input('password','Новый пароль','','password','required minlength="10" maxlength="128" autocomplete="new-password"')}${input('confirmation','Повторите пароль','','password','required minlength="10" maxlength="128" autocomplete="new-password"')}${submit('Создать аккаунт администратора')}</form>`
+          : empty('Настройка недоступна','Откройте ссылку настройки, выданную при развёртывании.',link('На главную','home'))
+        break
       case 'profile':html=profile(params);break
       case 'orders': {
         const list=state.user?await api('/orders'):null
@@ -306,7 +332,7 @@ async function render() {
   }
 }
 const values = form => Object.fromEntries(new FormData(form))
-const getAddress = fields => Object.fromEntries(['city',...addressFields.map(([key])=>key)].map(key=>[key,fields[key]||'']))
+const getAddress = fields => ({city:state.catalog.settings.city,...Object.fromEntries(addressFields.map(([key])=>[key,fields[key]||'']))})
 const numeric = (fields,keys) => {for (const key of keys) fields[key]=Number(fields[key])}
 const attach = async (fields,key) => {
   const file=fields.upload
@@ -322,16 +348,14 @@ const attach = async (fields,key) => {
 }
 async function refreshCatalog() {
   state.catalog=await api('/catalog')
-  if (!state.catalog.settings.cities.includes(state.city)) {
-    state.city=state.catalog.settings.cities[0]
-    persist('city',state.city)
-  }
+
 }
 async function submitForm(form) {
   const fields=values(form)
   switch(form.dataset.form) {
     case 'search':case 'filters':navigate('catalog',fields);return
     case 'menu':navigate('restaurant',fields);return
+    case 'adminOrders':navigate('admin',{tab:'orders',...fields});return
     case 'promo':
       state.checkoutDraft=$('[data-form=checkout]')?values($('[data-form=checkout]')):state.checkoutDraft
       state.promo=fields.promo.toUpperCase().trim()
@@ -340,7 +364,7 @@ async function submitForm(form) {
       const guest=state.cart
       const favorites=state.favorites
       state.user=await api('/'+form.dataset.mode,'POST',fields)
-      const merged=state.user.cart.filter(item=>restBy(dishBy(item.id)?.restaurant_id)?.city===state.city)
+      const merged=state.user.cart.filter(item=>dishBy(item.id))
       for (const item of guest) {
         const found=merged.find(value=>itemEquals(value,item))
         if (found) found.qty=Math.min(50,found.qty+item.qty)
@@ -377,7 +401,7 @@ async function submitForm(form) {
         await saveQueue.catch(()=>{})
         const time=fields.schedule==='later'?new Date(fields.time):null
         if (time&&!Number.isFinite(time.getTime())) throw new Error('Укажите дату и время доставки')
-        const payload={cart:state.cart,city:state.city,promo:state.promo,name:fields.name,phone:fields.phone,address:getAddress(fields),comment:fields.comment,time:time?time.toISOString():'',payment:fields.payment,saveAddress:!!fields.saveAddress}
+        const payload={cart:state.cart,promo:state.promo,name:fields.name,phone:fields.phone,address:getAddress(fields),comment:fields.comment,time:time?time.toISOString():'',payment:fields.payment,saveAddress:!!fields.saveAddress}
         const fingerprint=JSON.stringify(payload)
         if (orderAttempt?.fingerprint!==fingerprint) orderAttempt={fingerprint,key:crypto.randomUUID()}
         const result=await api('/orders','POST',{...payload,requestKey:orderAttempt.key})
@@ -391,6 +415,13 @@ async function submitForm(form) {
         return
       } finally {orderPending=false}
     }
+    case 'adminSetup':
+      if (fields.password!==fields.confirmation) throw new Error('Пароли должны совпадать')
+      state.user=await api('/auth/admin/setup','POST',{token:readRoute().params.get('token'),password:fields.password})
+      state.cart=state.user.cart
+      state.favorites=state.user.favorites
+      history.replaceState(null,'','#admin')
+      break
     case 'profile':
       await saveQueue.catch(()=>{})
       state.user=await api('/me','PATCH',{name:fields.name,phone:fields.phone})
@@ -401,7 +432,7 @@ async function submitForm(form) {
       state.user=await api('/me','PATCH',{addresses:[...state.user.addresses,getAddress(fields)]})
       toast('Адрес добавлен')
       break
-    case 'adminStatus':await api('/admin/orders/'+form.dataset.id,'PATCH',{status:Number(fields.status)});toast('Статус сохранён');break
+    case 'adminStatus':await api('/admin/orders/'+form.dataset.id,'PATCH',{status:Number(fields.status),expected:Number(form.dataset.expected)});toast('Статус сохранён');break
     case 'adminRole':await api('/admin/users/'+form.dataset.id,'PATCH',{role:fields.role});toast('Роль сохранена');break
     case 'adminEntity': {
       const {table,key}=form.dataset
@@ -422,7 +453,6 @@ async function submitForm(form) {
     case 'adminSettings':
       await attach(fields,'logo')
       numeric(fields,['delivery','minimum'])
-      fields.cities=fields.cities.split(',').map(city=>city.trim()).filter(Boolean)
       await api('/admin/settings','PUT',fields)
       await refreshCatalog()
       toast('Настройки сохранены')
@@ -476,6 +506,16 @@ document.addEventListener('click',async event=>{
         await saveQueue.catch(()=>{})
         state.user=await api('/me','PATCH',{addresses:state.user.addresses.filter((_,i)=>i!==Number(index))})
         toast('Адрес удалён');break
+      case 'refreshOrders':break
+      case 'advanceOrder':{
+        button.disabled=true
+        try {
+          const expected=Number(button.dataset.expected)
+          await api('/admin/orders/'+id,'PATCH',{status:expected+1,expected})
+          toast(expected===0?'Заказ принят':'Статус обновлён')
+        } finally {button.disabled=false}
+        break
+      }
       case 'adminEdit':adminEdit(table,key);return
       case 'adminDelete':
         if (!window.confirm('Удалить запись? При удалении ресторана его блюда тоже будут удалены.')) return
@@ -488,26 +528,35 @@ document.addEventListener('click',async event=>{
 })
 document.addEventListener('change',event=>{
   const field=event.target
-  if (['city','default-city'].includes(field.id)) {
-    if (state.cart.length&&!window.confirm('При изменении города корзина очистится. Продолжить?')) {field.value=state.city;return}
-    resetCity(field.value)
-  }
   const form=field.closest('[data-form=checkout]')
   if (!form) return
   if (field.name==='schedule') $('#delivery-time').hidden=field.value!=='later'
   if (field.name==='saved'&&field.value!=='') for (const [key] of addressFields) form.elements[key].value=state.user.addresses[Number(field.value)][key]||''
   state.checkoutDraft=values(form)
 })
+document.addEventListener('error',event=>{
+  const image=event.target
+  if (!(image instanceof HTMLImageElement)||image.dataset.fallback) return
+  image.dataset.fallback='true'
+  image.src='/mascot.jpg'
+},true)
 window.addEventListener('hashchange',()=>{
   window.scrollTo(0,0)
   render()
 })
 async function start() {
   try {
-    const [,user]=await Promise.all([refreshCatalog(),api('/me')])
+    const [,user,options]=await Promise.all([refreshCatalog(),api('/me'),api('/auth/options')])
+    state.authOptions=options
     state.user=user
     if (user) {state.cart=user.cart;state.favorites=user.favorites}
     await render()
+    const google=new URL(location.href).searchParams.get('google')
+    if (google) {
+      history.replaceState(null,'',location.pathname+location.hash)
+      if (google==='existing') toast('Для этого email уже есть аккаунт. Войдите по паролю.')
+      if (google==='error') toast('Вход через Google не завершился.')
+    }
   } catch(error) {
     main.innerHTML=empty('Не удалось загрузить каталог',esc(error.message),btn('Повторить','retry'))
     main.setAttribute('aria-busy','false')

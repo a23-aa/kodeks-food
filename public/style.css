@@ -5,3 +5,29 @@
 @media(max-width:375px){.hero-copy{max-width:83%}.line-item{grid-template-columns:46px minmax(0,1fr)}.line-item .row{grid-column:2}.categories{gap:5px}.category{font-size:.72rem}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 [hidden]{display:none!important}
+/* Give menu artwork its own frame so tall photos remain visible. */
+.card-media,.category,.hero-small{background-color:#261833}
+.card-media img{width:100%;height:auto;aspect-ratio:1.72;object-fit:contain;background:radial-gradient(ellipse at center,#38204e,#201529)}
+.category img{object-fit:contain}
+.hero-small img{object-fit:contain;background:radial-gradient(ellipse at center,#38204e,#201529)}
+.hero::before{background-size:auto 100%}
+.gift-offer{grid-template-columns:68px minmax(0,1fr);align-items:center;margin-bottom:14px;border-color:#694b8d}
+.gift-offer img{width:68px;height:60px;object-fit:contain;border-radius:9px}
+.gift-line{border-color:#75559c;background:#2b1d3d}
+.gift-line img{object-fit:contain}
+.ops{--ops-border:#4e3863}
+.ops-heading{display:flex;align-items:end;justify-content:space-between;gap:16px;flex-wrap:wrap;border:1px solid var(--ops-border);border-radius:22px;padding:24px;background:linear-gradient(120deg,#302046,#1a1423)}
+.ops-heading h1{font-size:clamp(1.9rem,4vw,3.1rem)}
+.ops-heading p{margin-top:8px}
+.ops-nav{padding:10px;background:#1c1525;border:1px solid var(--line);border-radius:13px}
+.ops-toolbar,.ops-order{display:grid;gap:12px}
+.ops-layout{display:grid;gap:15px}
+.ops-toolbar input[type=search]{flex:1;min-width:min(100%,190px)}
+.ops-order{border-color:var(--ops-border);background:linear-gradient(120deg,#271b36,#211828)}
+.ops-order.ops-new{border-left:4px solid #bc80ff}
+.ops-order summary{color:#e3c6ff;cursor:pointer;padding:8px 0;font-weight:650}
+.ops-order details[open] summary{margin-bottom:7px}
+.ops-total{font-size:1.2rem}
+.ops-editor-row img{width:52px;height:47px;object-fit:contain;border-radius:8px;background:#2b1b3a}
+.ops-editor-row .row{flex-wrap:wrap}
+@media(max-width:760px){.hero::before{background-position:120% center;background-size:auto 90%}.ops-heading{padding:15px}.ops-nav .button{font-size:.8rem;padding:7px 9px}}

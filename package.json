@@ -1,31 +1,32 @@
 {
   "name": "kodeks-food",
   "version": "1.0.0",
-  "description": "Кодекс — сервис доставки еды с каталогом, заказами и админ-панелью",
+  "description": "",
   "main": "index.js",
-  "directories": {
-    "test": "test"
-  },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "start": "node --env-file-if-exists=.env server.mjs",
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "dev": "npm run build && wrangler dev --config dist/server/wrangler.json --persist-to .wrangler/state",
+    "db:apply": "wrangler d1 migrations apply DB --config dist/server/wrangler.json",
+    "deploy": "wrangler deploy --config dist/server/wrangler.json",
+    "deploy:first": "node scripts/first-deploy.mjs",
+    "db:local": "wrangler d1 migrations apply DB --config dist/server/wrangler.json --local --persist-to .wrangler/state"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
-  "engines": {
-    "node": ">=24"
-  },
+  "type": "module",
   "dependencies": {
-    "express": "^5.3.0",
-    "express-rate-limit": "^8.7.4",
-    "helmet": "^8.3.0",
+    "hono": "^4.13.19",
+    "jose": "^6.2.17",
     "zod": "^4.6.7"
   },
-  "private": true,
   "devDependencies": {
-    "playwright-core": "^1.65.1"
+    "esbuild": "^0.28.2",
+    "miniflare": "^4.20260301.1",
+    "wrangler": "^4.164.0"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }
